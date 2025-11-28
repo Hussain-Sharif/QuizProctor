@@ -1,10 +1,10 @@
-import express from "express";
+import express, { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
 import auth from "../middleware/auth.js";
 
-const router = express.Router();
+const router = Router();
 
 router.post("/register", async (req, res) => {
   try {
@@ -23,12 +23,11 @@ router.post("/register", async (req, res) => {
 
     const user = await User.create({ name, email, password: hashed });
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    // const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+    //   expiresIn: "7d",
+    // });
 
     return res.status(201).json({
-      token,
       user: { id: user._id, name: user.name, email: user.email },
     });
   } catch (err) {
