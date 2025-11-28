@@ -41,8 +41,33 @@ const QuizInterface: React.FC = () => {
   const [violations, setViolations] = useState<ViolationEvent[]>([]);
   const [violationCount, setViolationCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [violationMessage, setViolationMessage] = useState<string | null>(null);
+  const [audioAlret,setAudioAlert]=useState<any>(null)
 
   const timerRef = useRef<number | null>(null);
+
+  useEffect(()=>{
+     setAudioAlert(new Audio('../../public/audios/timer-alert.wav'))
+  },[])
+
+   const playAlertAudio=async () =>{
+    // alert when the student tabswitchs or exits the full screen
+    audioAlret.currentTime = 0;
+    audioAlret.volume = 0.5;
+    try {
+      if(audioAlret)await audioAlret.play()
+    } catch (error) {
+      console.log('Alert audio failed:', error)
+    }
+}
+   const stopAlertAudio=async()=>{
+    try {
+      if(audioAlret)await audioAlret.pause()
+    } catch (error:any) {
+      console.log('Alert audio failed:', error)
+    }
+   }
+
 
   useEffect(() => {
     const loadQuiz = async () => {
@@ -76,33 +101,45 @@ const QuizInterface: React.FC = () => {
     };
   }, [isActive, secondsLeft]);
 
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (!quiz || !isActive) return;
+  const handleVisibility = async () => {
+      if (!quiz || !isActive){
+        await stopAlertAudio()
+        return;
+      }
       if (document.hidden) {
+        await playAlertAudio()
         if (timerRef.current !== null) {
           clearInterval(timerRef.current);
         }
         const evt: ViolationEvent = { type: "tab_switch", timestamp: new Date().toISOString() };
         setViolations((prev) => [...prev, evt]);
         setViolationCount((c) => c + 1);
+        setViolationMessage("Tab switch detected. This counts as a violation.");
         api.post(`/quiz/${quizLink}/log-violation`, { type: "tab_switch" }).catch(() => {});
+      }else{
+        await stopAlertAudio()
       }
+      console.log(document.visibilityState); // "visible"
+console.log(document.hidden); // false 
     };
     document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [quiz, isActive, quizLink]);
 
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      if (!quiz || !isActive) return;
+    const handleFullscreenChange = async() => {
+      if (!quiz || !isActive) {
+        await stopAlertAudio()
+      }
       if (!document.fullscreenElement) {
+        await playAlertAudio()
         const evt: ViolationEvent = {
           type: "fullscreen_exit",
           timestamp: new Date().toISOString(),
         };
         setViolations((prev) => [...prev, evt]);
         setViolationCount((c) => c + 1);
+        setViolationMessage("Fullscreen exited. This counts as a violation.");
+      }else{
+        await stopAlertAudio()
       }
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -112,10 +149,12 @@ const QuizInterface: React.FC = () => {
   useEffect(() => {
     if (!quiz) return;
     if (violationCount > quiz.settings.maxTabSwitches) {
+      setViolationMessage("Maximum violations exceeded. Your quiz will be terminated.");
       handleSubmit("terminated");
     }
   }, [violationCount, quiz]);
 
+ 
   const startQuiz = async () => {
     if (!quiz) return;
     try {
@@ -157,6 +196,7 @@ const QuizInterface: React.FC = () => {
 
     try {
       const res = await api.post(`/quiz/${quizLink}/submit`, payload);
+      localStorage.setItem(`qp_attempt_${quizLink}`, "1");
       navigate(`/quiz/${quizLink}/results`, {
         state: {
           submission: res.data,
@@ -164,11 +204,13 @@ const QuizInterface: React.FC = () => {
           timeTaken: payload.timeTaken,
         },
       });
-    } catch (err) {
-      // minimal error handling
+    } catch (err: any) {
+      const msg = err.response?.data?.message || "Submission failed";
       navigate(`/quiz/${quizLink}/results`, {
         state: {
-          error: "Submission failed",
+          error: msg,
+          violationCount,
+          timeTaken: payload.timeTaken,
         },
       });
     }
@@ -181,7 +223,7 @@ const QuizInterface: React.FC = () => {
   const currentQuestion = quiz.questions[currentIndex];
 
   return (
-    <div style={{ maxWidth: 800, margin: "20px auto" }}>
+    <div className="card" style={{ maxWidth: 800, margin: "20px auto" }}>
       <h1>{quiz.title}</h1>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <div>Time left: {secondsLeft}s</div>
@@ -189,6 +231,11 @@ const QuizInterface: React.FC = () => {
           Violations: {violationCount} / {quiz.settings.maxTabSwitches}
         </div>
       </div>
+      {violationMessage && (
+        <p className="text-danger" style={{ marginTop: 8 }}>
+          {violationMessage}
+        </p>
+      )}
       {!isActive ? (
         <div style={{ marginTop: 16 }}>
           <p>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../../api/client";
+import toast, { Toaster } from "react-hot-toast";
 
 interface FormField {
   fieldName: string;
@@ -54,6 +55,7 @@ const QuizBuilder: React.FC = () => {
   const [isPublished, setIsPublished] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -70,6 +72,7 @@ const QuizBuilder: React.FC = () => {
         setIsPublished(q.isPublished);
       } catch (err: any) {
         setError(err.response?.data?.message || "Failed to load quiz");
+        toast.error(err.response?.data?.message || "Failed to load quiz");
       } finally {
         setLoading(false);
       }
@@ -79,8 +82,34 @@ const QuizBuilder: React.FC = () => {
 
   const handleSave = async (publish: boolean) => {
     setError(null);
+    setSuccess(null);
+
+    if (!title.trim()) {
+      setError("Quiz title is required.");
+      toast.error("Quiz title is required.")
+      return;
+    }
+    if (formFields.length === 0) {
+      setError("Please add at least one field for the form.");
+      toast.error("Please add at least one field for the form.")
+      return;
+    }
+    if (questions.length === 0) {
+      setError("Please add at least one question.");
+      toast.error("Please add at least one question.")
+      return;
+    }
+    const invalid = questions.find(
+      (q) => !q.questionText.trim() || !q.correctAnswer.trim() || (q.questionType === "mcq" && (!q.options || q.options.length === 0))
+    );
+    if (invalid) {
+      setError("Each question must have text, a correct answer, and options for MCQ.");
+      toast.error("Each question must have text, a correct answer, and options for MCQ.")
+      return;
+    }
     setLoading(true);
     try {
+      const wasPublished = isPublished;
       const payload: QuizPayload = {
         title,
         description,
@@ -92,12 +121,30 @@ const QuizBuilder: React.FC = () => {
 
       if (id) {
         await api.put(`/quizzes/${id}`, payload);
+        setIsPublished(publish ? true : wasPublished);
+        if (publish) {
+          setSuccess(wasPublished ? "Changes saved and quiz re-published." : "Quiz published successfully.");
+          toast.success(wasPublished ? "Changes saved and quiz re-published." : "Quiz published successfully.");
+        } else {
+          setSuccess("Changes saved as draft.");
+          toast.success("Changes saved as draft.");
+        }
       } else {
-        await api.post("/quizzes", payload);
+        const res = await api.post("/quizzes", payload);
+        const created = res.data as QuizPayload & { _id: string; quizLink: string };
+        setIsPublished(publish);
+        if (publish) {
+          setSuccess("Quiz created and published. You can share the link from the dashboard.");
+          toast.success("Quiz created and published. You can share the link from the dashboard.");
+        } else {
+          setSuccess("Draft quiz created. You can publish it later from this page.");
+          toast.success("Draft quiz created. You can publish it later from this page.");
+        }
+        navigate("/teacher/quizzes/" + created._id, { replace: true });
       }
-      navigate("/teacher/dashboard");
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to save quiz");
+      toast.error(err.response?.data?.message || "Failed to save quiz");
     } finally {
       setLoading(false);
     }
@@ -117,13 +164,32 @@ const QuizBuilder: React.FC = () => {
     ]);
   };
 
-  return (
-    <div style={{ maxWidth: 900, margin: "20px auto" }}>
-      <h1>{id ? "Edit Quiz" : "Create Quiz"}</h1>
-      {loading && <p>Loading...</p>}
-      {error && <p style={{ color: "red" }}>{error}</p>}
+  const addFormField = () => {
+    setFormFields((prev) => [
+      ...prev,
+      { fieldName: "", fieldType: "text", required: false, options: [] },
+    ]);
+  };
 
-      <section>
+  return (
+    <div className="card">
+      <Toaster position="top-right"/>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h1>{id ? "Edit Quiz" : "Create Quiz"}</h1>
+          <p className="app-subtitle">
+            Configure quiz details, registration form, questions, and proctoring settings.
+          </p>
+        </div>
+        <button type="button" onClick={() => navigate(-1)}>
+          Back
+        </button>
+      </div>
+      {loading && <p>Loading...</p>}
+      {error && <p className="text-danger">{error}</p>}
+      {success && <p>{success}</p>}
+
+      <section style={{ marginTop: 16 }}>
         <h2>Basic Info</h2>
         <input
           type="text"
@@ -137,6 +203,83 @@ const QuizBuilder: React.FC = () => {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
+      </section>
+
+      <section>
+        <h2>Registration Form Fields</h2>
+        <p className="app-subtitle">
+          These fields will be shown to students before the quiz starts (e.g. Name, Email,
+          Roll Number).
+        </p>
+        <button type="button" onClick={addFormField}>
+          Add Field
+        </button>
+        <div
+        className="flex gap-2 w-full justify-center  flex-wrap"
+        >
+             {formFields.map((f, idx) => (
+          <div key={idx} className="w-45 flex  flex-col gap-2" style={{ marginTop: 8 }}>
+            <label>Field Label</label>
+            <input
+              type="text"
+              value={f.fieldName}
+              onChange={(e) => {
+                const next = [...formFields];
+                next[idx].fieldName = e.target.value;
+                setFormFields(next);
+              }}
+            />
+            <label>Type</label>
+            <select
+              value={f.fieldType}
+              onChange={(e) => {
+                const next = [...formFields];
+                next[idx].fieldType = e.target.value;
+                setFormFields(next);
+              }}
+            >
+              <option value="text">Text</option>
+              <option value="email">Email</option>
+              <option value="number">Number</option>
+              <option value="dropdown">Dropdown</option>
+              <option value="radio">Radio</option>
+            </select>
+            <div
+            className="flex justify-start items-start "
+            >
+              <label htmlFor={`${idx}-required`}>Required</label>
+              <input
+              className="m-0"
+                id={`${idx}-required`}
+                type="checkbox"
+                checked={f.required}
+                onChange={(e) => {
+                  const next = [...formFields];
+                  next[idx].required = e.target.checked;
+                  setFormFields(next);
+                }}
+              />
+            </div>
+            {(f.fieldType === "dropdown" || f.fieldType === "radio") && (
+              <>
+                <label>Options (comma separated)</label>
+                <input
+                  type="text"
+                  value={(f.options || []).join(",")}
+                  onChange={(e) => {
+                    const next = [...formFields];
+                    next[idx].options = e.target.value
+                      .split(",")
+                      .map((o) => o.trim())
+                      .filter(Boolean);
+                    setFormFields(next);
+                  }}
+                />
+              </>
+            )}
+          </div>
+        ))}
+        </div>
       </section>
 
       <section>
@@ -173,19 +316,47 @@ const QuizBuilder: React.FC = () => {
             </div>
             {q.questionType === "mcq" && (
               <div>
-                <label>Options (comma separated)</label>
-                <input
-                  type="text"
-                  value={(q.options || []).join(",")}
-                  onChange={(e) => {
+                <label>Options</label>
+                {(q.options || []).map((opt, optIdx) => (
+                  <div key={optIdx} style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                    <input
+                      type="text"
+                      value={opt}
+                      onChange={(e) => {
+                        const next = [...questions];
+                        const opts = [...(next[idx].options || [])];
+                        opts[optIdx] = e.target.value;
+                        next[idx].options = opts;
+                        setQuestions(next);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = [...questions];
+                        const opts = [...(next[idx].options || [])];
+                        opts.splice(optIdx, 1);
+                        next[idx].options = opts;
+                        setQuestions(next);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  style={{ marginTop: 4 }}
+                  onClick={() => {
                     const next = [...questions];
-                    next[idx].options = e.target.value
-                      .split(",")
-                      .map((o) => o.trim())
-                      .filter(Boolean);
+                    const opts = [...(next[idx].options || [])];
+                    opts.push("");
+                    next[idx].options = opts;
                     setQuestions(next);
                   }}
-                />
+                >
+                  Add Option
+                </button>
               </div>
             )}
             <div>
@@ -260,12 +431,12 @@ const QuizBuilder: React.FC = () => {
         </div>
       </section>
 
-      <div style={{ marginTop: 16 }}>
-        <button disabled={loading} onClick={() => handleSave(false)}>
+      <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+        <button type="button" disabled={loading} onClick={() => handleSave(false)}>
           Save as Draft
         </button>
-        <button disabled={loading || isPublished} onClick={() => handleSave(true)}>
-          {isPublished ? "Already Published" : "Publish"}
+        <button type="button" disabled={loading} onClick={() => handleSave(true)}>
+          {isPublished ? "Save & Re-Publish" : "Publish"}
         </button>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import api from "../../api/client";
 
 interface Violation {
@@ -26,17 +26,31 @@ interface Submission {
   submittedAt: string;
 }
 
+interface FormFieldMeta {
+  fieldName: string;
+  fieldType: string;
+  required: boolean;
+}
+
 const ResultsView: React.FC = () => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fields, setFields] = useState<FormFieldMeta[]>([]);
+  const [quizTitle, setQuizTitle] = useState<string>("");
 
   useEffect(() => {
     if (!id) return;
     const load = async () => {
       try {
-        const res = await api.get<Submission[]>(`/quizzes/${id}/submissions`);
-        setSubmissions(res.data);
+        const [subsRes, quizRes] = await Promise.all([
+          api.get<Submission[]>(`/quizzes/${id}/submissions`),
+          api.get<{ title: string; formFields: FormFieldMeta[] }>(`/quizzes/${id}`),
+        ]);
+        setSubmissions(subsRes.data);
+        setQuizTitle(quizRes.data.title || "Quiz Results");
+        setFields(quizRes.data.formFields || []);
       } finally {
         setLoading(false);
       }
@@ -59,16 +73,34 @@ const ResultsView: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: 1000, margin: "20px auto" }}>
-      <h1>Quiz Results</h1>
-      <button onClick={downloadCsv}>Download CSV</button>
+    <div className="card" style={{ maxWidth: 1100, margin: "20px auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <h1>{quizTitle || "Quiz Results"}</h1>
+          <p className="app-subtitle">
+            View how each student filled the registration form and performed in the quiz.
+          </p>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" onClick={() => navigate(-1)}>
+            Back
+          </button>
+          <button type="button" onClick={downloadCsv}>
+            Download CSV
+          </button>
+        </div>
+      </div>
       {loading ? (
         <p>Loading...</p>
+      ) : submissions.length === 0 ? (
+        <p style={{ marginTop: 16 }}>No submissions yet.</p>
       ) : (
-        <table style={{ width: "100%", marginTop: 16 }}>
+        <table className="table" style={{ marginTop: 16 }}>
           <thead>
             <tr>
-              <th>Student</th>
+              {fields.map((f) => (
+                <th key={f.fieldName}>{f.fieldName}</th>
+              ))}
               <th>Score</th>
               <th>Status</th>
               <th>Tab Switches</th>
@@ -79,13 +111,12 @@ const ResultsView: React.FC = () => {
           </thead>
           <tbody>
             {submissions.map((s) => {
-              const name = (s.studentFormData && s.studentFormData.name) || "";
-              const tabSwitchCount = s.violations.filter(
-                (v) => v.type === "tab_switch"
-              ).length;
+              const tabSwitchCount = s.violations.filter((v) => v.type === "tab_switch").length;
               return (
                 <tr key={s._id}>
-                  <td>{name}</td>
+                  {fields.map((f) => (
+                    <td key={f.fieldName}>{s.studentFormData?.[f.fieldName] ?? ""}</td>
+                  ))}
                   <td>
                     {s.totalScore} / {s.maxScore}
                   </td>
@@ -102,6 +133,6 @@ const ResultsView: React.FC = () => {
       )}
     </div>
   );
-};
+}
 
 export default ResultsView;

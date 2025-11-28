@@ -50,6 +50,17 @@ router.post("/:quizLink/submit", async (req, res) => {
       return res.status(400).json({ message: "studentFormData is required" });
     }
 
+    // Prevent multiple attempts from same student (based on email if provided)
+    if (studentFormData && studentFormData.email) {
+      const existing = await Submission.findOne({
+        quizId: quiz._id,
+        "studentFormData.email": studentFormData.email,
+      });
+      if (existing) {
+        return res.status(409).json({ message: "You have already attempted this quiz." });
+      }
+    }
+
     const questionMap = new Map();
     let maxScore = 0;
     quiz.questions.forEach((q) => {

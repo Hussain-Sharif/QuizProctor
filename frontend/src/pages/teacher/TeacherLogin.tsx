@@ -26,8 +26,9 @@ const TeacherLogin: React.FC = () => {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: "40px auto" }}>
+    <div className="card" style={{ maxWidth: 480, margin: "40px auto" }}>
       <h1>Teacher Login</h1>
+      <p className="app-subtitle">Sign in to manage your quizzes and monitor results.</p>
       <form onSubmit={handleSubmit}>
         <div>
           <label>Email</label>
@@ -47,11 +48,14 @@ const TeacherLogin: React.FC = () => {
             required
           />
         </div>
-        {error && <p style={{ color: "red" }}>{error}</p>}
-        <button type="submit" disabled={loading}>
+        {error && <p className="text-danger">{error}</p>}
+        <button type="submit" disabled={loading} style={{ marginTop: 12 }}>
           {loading ? "Logging in..." : "Login"}
         </button>
       </form>
+      <p style={{ marginTop: 12 }}>
+        New here? <a href="/teacher/register">Create an account</a>
+      </p>
     </div>
   );
 };

@@ -18,24 +18,58 @@ const RegistrationForm: React.FC = () => {
   const navigate = useNavigate();
   const [fields, setFields] = useState<FormField[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const regKey = `qp_reg_${quizLink}`;
+    const existing = localStorage.getItem(regKey);
+    if (existing) {
+      navigate(`/quiz/${quizLink}/take`, { replace: true });
+      return;
+    }
+
     const load = async () => {
       const res = await api.get<QuizMeta & { title: string }>(`/quiz/${quizLink}`);
       setFields(res.data.formFields || []);
     };
     load();
-  }, [quizLink]);
+  }, [quizLink, navigate]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+
+    for (const f of fields) {
+      const key = f.fieldName;
+      const value = (values[key] || "").trim();
+      if (f.required && !value) {
+        setError(`Please fill the required field: ${f.fieldName}`);
+        return;
+      }
+      if (value) {
+        if (f.fieldType === "email") {
+          const emailRegex = /.+@.+\..+/;
+          if (!emailRegex.test(value)) {
+            setError(`Please enter a valid email for: ${f.fieldName}`);
+            return;
+          }
+        }
+        if (f.fieldType === "number" && isNaN(Number(value))) {
+          setError(`Please enter a valid number for: ${f.fieldName}`);
+          return;
+        }
+      }
+    }
+
     localStorage.setItem(`qp_reg_${quizLink}`, JSON.stringify(values));
     navigate(`/quiz/${quizLink}/take`);
   };
 
   return (
-    <div style={{ maxWidth: 600, margin: "20px auto" }}>
+    <div className="card" style={{ maxWidth: 600, margin: "20px auto" }}>
       <h1>Registration</h1>
+      <p className="app-subtitle">Provide your details before starting the quiz.</p>
+      {error && <p className="text-danger">{error}</p>}
       <form onSubmit={handleSubmit}>
         {fields.map((f) => {
           const key = f.fieldName;
