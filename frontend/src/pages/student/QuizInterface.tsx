@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../../api/client";
 
@@ -43,30 +43,54 @@ const QuizInterface: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [violationMessage, setViolationMessage] = useState<string | null>(null);
   const [audioAlret,setAudioAlert]=useState<any>(null)
-
+  const [isFullScreenVoilated,setIsFullScreenVoilated]=useState<Boolean>(false)
   const timerRef = useRef<number | null>(null);
 
   useEffect(()=>{
-     setAudioAlert(new Audio('../../public/audios/timer-alert.wav'))
-  },[])
+    const audio=new Audio('../../public/audios/timer-alert.wav')
+    audio.loop=true
+     setAudioAlert(audio) 
+      return () => {
+    audio.pause();
+    audio.currentTime = 0;
+    audio.src = ''; // Release the audio resource
+  };
+  },[]) 
 
-   const playAlertAudio=async () =>{
-    // alert when the student tabswitchs or exits the full screen
-    audioAlret.currentTime = 0;
-    audioAlret.volume = 0.5;
+  useEffect(() => {
+  // This MASTER cleanup runs when component unmounts for any reason!!!!
+  return () => {
+    if (audioAlret) {
+      audioAlret.pause();
+      audioAlret.currentTime = 0;
+    }
+    // Clear the timer as well
+    if (timerRef.current !== null) {
+      clearInterval(timerRef.current);
+    }
+  };
+}, [audioAlret]);
+
+    const playAlertAudio = useCallback(async () => {
     try {
-      if(audioAlret)await audioAlret.play()
+      if (audioAlret && isActive) {
+        audioAlret.currentTime = 0;
+        audioAlret.volume = 0.5;
+        await audioAlret.play();
+      }
     } catch (error) {
-      console.log('Alert audio failed:', error)
+      console.log('Alert audio failed:', error);
     }
-}
-   const stopAlertAudio=async()=>{
+  }, [audioAlret, isActive]); 
+
+
+   const stopAlertAudio = useCallback(async () => {
     try {
-      if(audioAlret)await audioAlret.pause()
-    } catch (error:any) {
-      console.log('Alert audio failed:', error)
+      if (audioAlret && isActive) await audioAlret.pause();
+    } catch (error: any) {
+      console.log('Alert audio failed:', error);
     }
-   }
+  }, [audioAlret, isActive]);
 
 
   useEffect(() => {
@@ -101,50 +125,71 @@ const QuizInterface: React.FC = () => {
     };
   }, [isActive, secondsLeft]);
 
-  const handleVisibility = async () => {
-      if (!quiz || !isActive){
-        await stopAlertAudio()
-        return;
-      }
-      if (document.hidden) {
-        await playAlertAudio()
-        if (timerRef.current !== null) {
-          clearInterval(timerRef.current);
-        }
-        const evt: ViolationEvent = { type: "tab_switch", timestamp: new Date().toISOString() };
-        setViolations((prev) => [...prev, evt]);
-        setViolationCount((c) => c + 1);
-        setViolationMessage("Tab switch detected. This counts as a violation.");
-        api.post(`/quiz/${quizLink}/log-violation`, { type: "tab_switch" }).catch(() => {});
-      }else{
-        await stopAlertAudio()
-      }
-      console.log(document.visibilityState); // "visible"
-console.log(document.hidden); // false 
+  const handleTabHidden = useCallback(async () => {
+    await playAlertAudio();
+    if (timerRef.current !== null) {
+      clearInterval(timerRef.current);
+    }
+    const evt: ViolationEvent = { 
+      type: "tab_switch", 
+      timestamp: new Date().toISOString() 
     };
-    document.addEventListener("visibilitychange", handleVisibility);
+    setViolations((prev) => [...prev, evt]);
+    setViolationCount((c) => c + 1);
+    setViolationMessage("Tab switch detected. This counts as a violation.");
+    await api.post(`/quiz/${quizLink}/log-violation`, { type: "tab_switch" }).catch(() => {});
+  }, [quizLink, playAlertAudio]);
+
+  const handleTabVisible = useCallback(async () => {
+    await stopAlertAudio();
+  }, [stopAlertAudio]);
+
+   useEffect(() => {
+    if (!isActive || !quiz) return;
+
+    // Use the memoized functions directly
+    window.addEventListener("blur", handleTabHidden);
+    window.addEventListener("focus", handleTabVisible);
+
+    console.log("Event listeners added");
+
+    return () => {
+      window.removeEventListener("blur", handleTabHidden);
+      window.removeEventListener("focus", handleTabVisible);
+      console.log("Event listeners removed");
+    };
+  }, [isActive, quiz, handleTabHidden, handleTabVisible]);
+
+ const handleFullscreenChange = useCallback(async () => {
+    if (!quiz || !isActive) {
+      await stopAlertAudio();
+      return;
+    }
+    if (!document.fullscreenElement) {
+      await playAlertAudio();
+      const evt: ViolationEvent = {
+        type: "fullscreen_exit",
+        timestamp: new Date().toISOString(),
+      };
+      setViolations((prev) => [...prev, evt]);
+      setViolationCount((c) => c + 1);
+      setViolationMessage("Fullscreen exited. This counts as a violation.");
+      setIsFullScreenVoilated(true)
+    } else {
+      await stopAlertAudio();
+    }
+  }, [quiz, isActive, playAlertAudio, stopAlertAudio]);
 
   useEffect(() => {
-    const handleFullscreenChange = async() => {
-      if (!quiz || !isActive) {
-        await stopAlertAudio()
-      }
-      if (!document.fullscreenElement) {
-        await playAlertAudio()
-        const evt: ViolationEvent = {
-          type: "fullscreen_exit",
-          timestamp: new Date().toISOString(),
-        };
-        setViolations((prev) => [...prev, evt]);
-        setViolationCount((c) => c + 1);
-        setViolationMessage("Fullscreen exited. This counts as a violation.");
-      }else{
-        await stopAlertAudio()
-      }
-    };
+    if (!isActive || !quiz) return;
+
     document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
-  }, [quiz, isActive]);
+    console.log("Event listeners added by fullScreen");
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      console.log("Event listeners removed by fullScreen");
+    };
+  }, [isActive, quiz, handleFullscreenChange]);
 
   useEffect(() => {
     if (!quiz) return;
@@ -154,13 +199,17 @@ console.log(document.hidden); // false
     }
   }, [violationCount, quiz]);
 
+
+  const makeFullScreen=async()=>{
+    if (document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen();
+    } 
+  }
  
   const startQuiz = async () => {
     if (!quiz) return;
     try {
-      if (document.documentElement.requestFullscreen) {
-        await document.documentElement.requestFullscreen();
-      }
+      await makeFullScreen()
     } catch {
       // ignore fullscreen errors
     }
@@ -224,6 +273,14 @@ console.log(document.hidden); // false
 
   return (
     <div className="card" style={{ maxWidth: 800, margin: "20px auto" }}>
+    <button 
+    className={`${(isFullScreenVoilated && isActive)?"flex":"hidden"}`}
+    onClick={async()=>{
+      if(violationMessage?.includes("Fullscreen")){
+        setIsFullScreenVoilated(false)
+        await makeFullScreen()
+      }
+    }}>Full Screen</button>
       <h1>{quiz.title}</h1>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <div>Time left: {secondsLeft}s</div>
