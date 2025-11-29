@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api from "../../api/client";
+import audioFile from "../../assets/timer-alert.wav"
 
 interface Settings {
   timeLimitMinutes: number;
@@ -47,7 +48,7 @@ const QuizInterface: React.FC = () => {
   const timerRef = useRef<number | null>(null);
 
   useEffect(()=>{
-    const audio=new Audio("public/audios/timer-alert.wav")
+    const audio=new Audio(audioFile)
     audio.loop=true
      setAudioAlert(audio) 
       return () => {
