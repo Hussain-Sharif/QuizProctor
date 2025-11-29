@@ -47,7 +47,7 @@ const QuizInterface: React.FC = () => {
   const timerRef = useRef<number | null>(null);
 
   useEffect(()=>{
-    const audio=new Audio("../../../public/audios/timer-alert.wav")
+    const audio=new Audio("public/audios/timer-alert.wav")
     audio.loop=true
      setAudioAlert(audio) 
       return () => {
